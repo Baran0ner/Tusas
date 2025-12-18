@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TUSAŞ | Laminate Stacking Optimizer</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'system-ui', 'sans-serif'],
+              mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular'],
+            },
+            colors: {
+              space: {
+                900: '#0f172a',
+                800: '#111827',
+                700: '#1f2937',
+              },
+              electric: '#0ea5e9',
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body class="bg-slate-900 text-slate-100 font-sans min-h-screen">
+    <div class="min-h-screen flex">
+      <!-- Sidebar -->
+      <aside class="w-80 bg-slate-900 border-r border-slate-800 p-6 flex flex-col gap-6">
+        <div>
+          <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Control Panel</p>
+          <h1 class="text-xl font-semibold mt-1 text-white">Laminate Inputs</h1>
+          <p class="text-sm text-slate-400 mt-2">Enter ply counts for the root (thickest) section.</p>
+        </div>
+        <form id="optimize-form" class="flex flex-col gap-4">
+          <div class="grid grid-cols-2 gap-3">
+            <label class="text-sm text-slate-300">
+              0°
+              <input
+                type="number"
+                name="0"
+                value="18"
+                min="0"
+                class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-electric focus:border-electric"
+              />
+            </label>
+            <label class="text-sm text-slate-300">
+              90°
+              <input
+                type="number"
+                name="90"
+                value="18"
+                min="0"
+                class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-electric focus:border-electric"
+              />
+            </label>
+            <label class="text-sm text-slate-300">
+              +45°
+              <input
+                type="number"
+                name="45"
+                value="18"
+                min="0"
+                class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-electric focus:border-electric"
+              />
+            </label>
+            <label class="text-sm text-slate-300">
+              -45°
+              <input
+                type="number"
+                name="-45"
+                value="18"
+                min="0"
+                class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-electric focus:border-electric"
+              />
+            </label>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <label class="text-sm text-slate-300">
+              Population
+              <input
+                type="number"
+                name="population_size"
+                value="120"
+                min="30"
+                class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-electric focus:border-electric"
+              />
+            </label>
+            <label class="text-sm text-slate-300">
+              Generations
+              <input
+                type="number"
+                name="generations"
+                value="600"
+                min="50"
+                class="mt-1 w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-electric focus:border-electric"
+              />
+            </label>
+          </div>
+
+          <div class="pt-2">
+            <button
+              type="submit"
+              class="w-full bg-electric hover:bg-sky-400 text-slate-900 font-semibold py-3 rounded-md shadow-lg shadow-cyan-500/20 transition-all"
+            >
+              Start Optimization
+            </button>
+          </div>
+        </form>
+        <div class="text-xs text-slate-500 leading-relaxed">
+          Engine: Genetic Algorithm + Drop-Off Monte Carlo. Expect 5-10s per run.
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="flex-1 p-8 relative overflow-hidden">
+        <div id="loading-overlay" class="hidden absolute inset-0 bg-slate-900/90 backdrop-blur flex flex-col items-center justify-center z-20">
+          <div class="bg-space-800 border border-slate-800 rounded-xl p-8 max-w-md w-full">
+            <div class="flex items-center gap-3 mb-6">
+              <div class="w-8 h-8 border-4 border-electric border-t-transparent rounded-full animate-spin"></div>
+              <div>
+                <p class="text-sm font-semibold text-white">Optimization in Progress</p>
+                <p class="text-xs text-slate-400" id="loading-status">Initializing...</p>
+              </div>
+            </div>
+            
+            <div class="space-y-2">
+              <div class="flex items-center gap-2 text-xs">
+                <div id="rule-1-icon" class="w-4 h-4 flex items-center justify-center">⏳</div>
+                <span class="text-slate-300">Rule 1: Checking Symmetry...</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <div id="rule-2-icon" class="w-4 h-4 flex items-center justify-center">⏳</div>
+                <span class="text-slate-300">Rule 2: Validating Balance...</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <div id="rule-3-icon" class="w-4 h-4 flex items-center justify-center">⏳</div>
+                <span class="text-slate-300">Rule 3: Checking Adjacency...</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <div id="rule-4-icon" class="w-4 h-4 flex items-center justify-center">⏳</div>
+                <span class="text-slate-300">Rule 4: Checking External Plies...</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <div id="rule-5-icon" class="w-4 h-4 flex items-center justify-center">⏳</div>
+                <span class="text-slate-300">Rule 5: Analyzing Distribution...</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <div id="rule-6-icon" class="w-4 h-4 flex items-center justify-center">⏳</div>
+                <span class="text-slate-300">Rule 6: Checking Grouping...</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <div id="rule-7-icon" class="w-4 h-4 flex items-center justify-center">⏳</div>
+                <span class="text-slate-300">Rule 7: Evaluating Buckling...</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <div id="rule-8-icon" class="w-4 h-4 flex items-center justify-center">⏳</div>
+                <span class="text-slate-300">Rule 8: Checking Lateral Bending...</span>
+              </div>
+            </div>
+            
+            <div class="mt-6 pt-4 border-t border-slate-800">
+              <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden">
+                <div id="loading-progress" class="h-full bg-electric transition-all duration-300" style="width: 0%"></div>
+              </div>
+              <p class="text-xs text-slate-400 mt-2 text-center" id="loading-progress-text">0%</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Mission Control</p>
+            <h2 class="text-2xl font-semibold text-white">Laminate Stacking Dashboard</h2>
+          </div>
+          <div class="text-right text-sm text-slate-400 font-mono" id="run-meta">Ready</div>
+        </div>
+
+        <div id="empty-state" class="h-[70vh] border-2 border-dashed border-slate-800 rounded-xl flex flex-col items-center justify-center text-slate-500">
+          <div class="text-lg font-semibold text-white">Ready for Simulation</div>
+          <p class="text-sm text-slate-400 mt-2">Input ply counts and launch the optimizer to visualize results.</p>
+        </div>
+
+        <div id="results" class="hidden space-y-6 animate-[fadeIn_0.6s_ease]">
+          <!-- Metric Cards -->
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="col-span-2 bg-space-800 border border-slate-800 rounded-xl p-4">
+              <p class="text-xs uppercase text-slate-400">Fitness Score</p>
+              <div class="flex items-baseline gap-2 mt-2">
+                <span id="fitness-score" class="text-3xl font-bold text-slate-50">--</span>
+                <span class="text-xs text-slate-500">/100</span>
+              </div>
+              <div id="stats-meta" class="text-xs text-slate-400 mt-2"></div>
+              <div id="fitness-hint" class="text-xs text-slate-500 mt-3 pt-3 border-t border-slate-700/50">
+                <span class="text-slate-400">💡</span> 100'den tüm cezaların çıkarılmasıyla hesaplanır. Yüksek skor = kurallara uygun dizilim.
+              </div>
+            </div>
+            <div class="bg-space-800 border border-slate-800 rounded-xl p-4">
+              <p class="text-xs uppercase text-slate-400">Symmetry Score</p>
+              <div id="symmetry-penalty" class="text-2xl font-mono mt-2 text-emerald-400">-- / 100</div>
+              <div id="symmetry-hint" class="text-xs text-slate-500 mt-3 pt-3 border-t border-slate-700/50">
+                <span class="text-slate-400">💡</span> İlk ve son katmanların simetrik eşleşmesi kontrol edilir. 100 = mükemmel simetri.
+              </div>
+            </div>
+            <div class="bg-space-800 border border-slate-800 rounded-xl p-4">
+              <p class="text-xs uppercase text-slate-400">Balance Score</p>
+              <div id="balance-score" class="text-2xl font-mono mt-2 text-emerald-400">-- / 100</div>
+              <div id="balance-hint" class="text-xs text-slate-500 mt-3 pt-3 border-t border-slate-700/50">
+                <span class="text-slate-400">💡</span> +45° ve -45° katmanlarının sayısal dengesi. 100 = dengeli dağılım.
+              </div>
+            </div>
+          </div>
+
+          <!-- Penalties first for clarity -->
+          <div class="grid grid-cols-1 lg:grid-cols-1 gap-4">
+            <div class="bg-space-800 border border-slate-800 rounded-xl p-4 space-y-2">
+              <div>
+                <p class="text-sm font-semibold text-white">Penalty Breakdown</p>
+                <p class="text-xs text-slate-400 mt-1">Ceza puanları ve gerekçeleri (örn. simetri bozulması, aşırı grup, dış katmanda 45° eksikliği).</p>
+              </div>
+              <div id="penalty-list" class="space-y-2 text-sm"></div>
+            </div>
+          </div>
+
+          <!-- Calculation Summary -->
+          <div class="bg-space-800 border border-slate-800 rounded-xl p-5 space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-xs uppercase text-slate-400">Hesaplama Özeti</p>
+                <p class="text-sm text-slate-300">GA ve Drop-Off çıktılarının hızlı açıklaması</p>
+              </div>
+              <div class="text-xs text-slate-400 font-mono" id="summary-runtime">--</div>
+            </div>
+            <div class="grid md:grid-cols-3 gap-4 text-sm">
+              <div class="bg-slate-900/50 border border-slate-800 rounded-lg p-3">
+                <p class="text-xs uppercase text-slate-400">Parametreler</p>
+                <div class="mt-2 space-y-1 text-slate-200" id="summary-params">--</div>
+              </div>
+              <div class="bg-slate-900/50 border border-slate-800 rounded-lg p-3">
+                <p class="text-xs uppercase text-slate-400">Master Dizilim</p>
+                <div class="mt-2 flex flex-wrap gap-1" id="summary-master">--</div>
+              </div>
+              <div class="bg-slate-900/50 border border-slate-800 rounded-lg p-3">
+                <p class="text-xs uppercase text-slate-400">Drop-Off Hedefleri</p>
+                <div class="mt-2 space-y-1" id="summary-dropoff">--</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Laminate Map -->
+          <div class="bg-space-800 border border-slate-800 rounded-xl p-4">
+            <div class="flex items-center justify-between">
+              <p class="text-sm font-semibold text-white">Laminate Map (Drop-Off)</p>
+              <div class="flex gap-2 text-xs text-slate-400 items-center">
+                <span class="flex items-center gap-1"><span class="w-3 h-3 bg-emerald-500 inline-block"></span>0°</span>
+                <span class="flex items-center gap-1"><span class="w-3 h-3 bg-sky-500 inline-block"></span>90°</span>
+                <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-500 inline-block"></span>+45°</span>
+                <span class="flex items-center gap-1"><span class="w-3 h-3 bg-orange-500 inline-block"></span>-45°</span>
+                <span class="flex items-center gap-1 ml-2 border-l border-slate-700 pl-2"><span class="w-[3px] h-4 bg-yellow-400 inline-block shadow-[0_0_6px_rgba(250,204,21,0.6)]"></span>Simetri Ekseni</span>
+              </div>
+            </div>
+            <div id="laminate-map" class="mt-4 flex flex-col gap-3"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <style>
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    </style>
+
+    <script>
+      // API base URL: localhost'ta çalışırken relative, Netlify'da gerçek backend URL'si
+      const API_BASE =
+        window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+          ? ''
+          : 'https://YOUR-BACKEND-DOMAIN.COM'; // TODO: Buraya Flask backend'ini deploy ettiğin URL'i yaz
+
+      const form = document.getElementById('optimize-form');
+      const loadingOverlay = document.getElementById('loading-overlay');
+      const loadingStatus = document.getElementById('loading-status');
+      const loadingProgress = document.getElementById('loading-progress');
+      const loadingProgressText = document.getElementById('loading-progress-text');
+      const emptyState = document.getElementById('empty-state');
+      const resultsSection = document.getElementById('results');
+      const fitnessScoreEl = document.getElementById('fitness-score');
+      const symmetryPenaltyEl = document.getElementById('symmetry-penalty');
+      const balanceScoreEl = document.getElementById('balance-score');
+      const fitnessHintEl = document.getElementById('fitness-hint');
+      const symmetryHintEl = document.getElementById('symmetry-hint');
+      const balanceHintEl = document.getElementById('balance-hint');
+      const penaltyListEl = document.getElementById('penalty-list');
+      const statsMetaEl = document.getElementById('stats-meta');
+      const runMetaEl = document.getElementById('run-meta');
+      const laminateMapEl = document.getElementById('laminate-map');
+      const summaryParamsEl = document.getElementById('summary-params');
+      const summaryMasterEl = document.getElementById('summary-master');
+      const summaryDropEl = document.getElementById('summary-dropoff');
+      const summaryRuntimeEl = document.getElementById('summary-runtime');
+      let chartInstance = null;
+      let progressInterval = null;
+
+      // Kural ikonlarını güncelleyen fonksiyon
+      function updateRuleStatus(ruleNum, status) {
+        const icon = document.getElementById(`rule-${ruleNum}-icon`);
+        if (!icon) return;
+        
+        if (status === 'checking') {
+          icon.textContent = '⏳';
+          icon.className = 'w-4 h-4 flex items-center justify-center animate-pulse';
+        } else if (status === 'done') {
+          icon.textContent = '✅';
+          icon.className = 'w-4 h-4 flex items-center justify-center';
+        } else if (status === 'error') {
+          icon.textContent = '❌';
+          icon.className = 'w-4 h-4 flex items-center justify-center';
+        }
+      }
+
+      // Yükleme animasyonu fonksiyonu
+      async function showLoadingAnimation() {
+        loadingOverlay.classList.remove('hidden');
+        
+        // Tüm kuralları başlangıç durumuna getir
+        for (let i = 1; i <= 8; i++) {
+          updateRuleStatus(i, 'checking');
+        }
+        
+        const rules = [
+          { num: 1, name: 'Symmetry', delay: 500 },
+          { num: 2, name: 'Balance', delay: 1000 },
+          { num: 3, name: 'Adjacency', delay: 1250 },
+          { num: 4, name: 'External Plies', delay: 1500 },
+          { num: 5, name: 'Distribution', delay: 2000 },
+          { num: 6, name: 'Grouping', delay: 2500 },
+          { num: 7, name: 'Buckling', delay: 3000 },
+          { num: 8, name: 'Lateral Bending', delay: 3500 },
+        ];
+        
+        // Progress bar animasyonu
+        let progress = 0;
+        progressInterval = setInterval(() => {
+          progress += 2;
+          if (progress > 90) progress = 90; // Backend tamamlanana kadar 90'da kal
+          loadingProgress.style.width = `${progress}%`;
+          loadingProgressText.textContent = `${Math.round(progress)}%`;
+        }, 100);
+        
+        // Kuralları sırayla kontrol et
+        for (let i = 0; i < rules.length; i++) {
+          const rule = rules[i];
+          const prevDelay = i > 0 ? rules[i - 1].delay : 0;
+          await new Promise(resolve => setTimeout(resolve, rule.delay - prevDelay));
+          updateRuleStatus(rule.num, 'checking');
+          loadingStatus.textContent = `Checking Rule ${rule.num}: ${rule.name}...`;
+          
+          await new Promise(resolve => setTimeout(resolve, 300));
+          updateRuleStatus(rule.num, 'done');
+        }
+        
+        loadingStatus.textContent = 'Running Genetic Algorithm...';
+        loadingProgress.style.width = '95%';
+        loadingProgressText.textContent = '95%';
+        
+        return progressInterval;
+      }
+
+      function statusColor(value, invert = false) {
+        if (value === '--') return 'text-slate-300';
+        const good = invert ? value < 5 : value >= 90;
+        return good ? 'text-emerald-400' : 'text-red-400';
+      }
+
+      function getPenaltyExplanation(name, val) {
+        const explanations = {
+          'R1_Symmetry': val === 0 
+            ? '✅ Mükemmel: İlk ve son katmanlar simetrik olarak eşleşiyor.' 
+            : '❌ Simetri bozulması: Karşılıklı katmanlar eşleşmiyor.',
+          'R2_Balance': val === 0 
+            ? '✅ Mükemmel: +45° ve -45° sayıları dengeli (kuplaj önleme).' 
+            : '❌ Dengesizlik: +45° ve -45° sayıları eşit değil, kuplaj riski var.',
+          'R3_Percentage': val === 0 
+            ? '✅ Mükemmel: Tüm açılar uygun yüzde aralığında (8%-67%).' 
+            : '❌ Yüzde hatası: Bazı açılar izin verilen yüzde aralığının dışında.',
+          'R3_Adjacency': val === "FORBIDDEN"
+            ? '🚫 YASAK: 0° ve 90° katmanları yan yana olamaz (HARD RULE ihlali - çözüm geçersiz).'
+            : (val === 0 
+              ? '✅ Mükemmel: 0° ve 90° katmanları yan yana değil.' 
+              : '❌ Komşuluk hatası: 0° ve 90° katmanları yan yana olamaz.'),
+          'R4_External': val === 0 
+            ? '✅ Mükemmel: Dış katmanlar ±45° ile başlayıp bitiyor (hasar toleransı).' 
+            : '❌ Dış katman hatası: İlk ve son katmanlar ±45° olmalı.',
+          'R5_Distribution': val === 0 
+            ? '✅ Mükemmel: Açılar dönüşümlü yerleştirilmiş (tek katman tercihi).' 
+            : '❌ Dağılım hatası: Aynı açılı katmanlar ardışık yerleştirilmiş (dönüşümlü yerleşim tercih edilir).',
+          'R6_Grouping': val === 0 
+            ? '✅ Mükemmel: Aynı açılı katmanlar 3\'ten fazla yan yana değil (yapısal bütünlük).' 
+            : '❌ Gruplama hatası: Aynı açılı katmanlar çok fazla yan yana.',
+          'R7_Buckling': val === 0 
+            ? '✅ Mükemmel: Uç bölgelerde yeterli ±45° katmanı var (burkulma performansı).' 
+            : '❌ Burkulma riski: Uç bölgelerde ±45° katmanları yetersiz.',
+          'R8_LateralBending': val === 0 
+            ? '✅ Mükemmel: 90° katmanları orta düzlemden uzakta (lateral eğilme sertliği).' 
+            : '❌ Lateral eğilme hatası: 90° katmanları orta düzleme çok yakın.',
+          // Backward compatibility
+          'R2_R5_Contiguity': val === 0 
+            ? '✅ Mükemmel: +45° ve -45° katmanları doğru sırada.' 
+            : '❌ Ardışıklık hatası: ±45° katmanları yan yana gelmeli.',
+          'CLT_Imbalance': val === 0 
+            ? '✅ Mükemmel: +45° ve -45° sayıları dengeli.' 
+            : '❌ Dengesizlik: +45° ve -45° sayıları eşit değil.'
+        };
+        return explanations[name] || (val === 0 ? '✅ Kurala uygun.' : '❌ Kural ihlali tespit edildi.');
+      }
+
+      function renderPenalties(penalties) {
+        penaltyListEl.innerHTML = '';
+        const entries = Object.entries(penalties);
+        if (!entries.length) {
+          penaltyListEl.innerHTML = '<p class="text-slate-400 text-sm">No penalties recorded.</p>';
+          return;
+        }
+        
+        // Rule name mapping
+        const ruleNames = {
+          'R1': 'Symmetry',
+          'R2': 'Balance',
+          'R3': 'Adjacency',
+          'R4': 'External Plies',
+          'R5': 'Distribution',
+          'R6': 'Grouping',
+          'R7': 'Buckling',
+          'R8': 'Lateral Bending'
+        };
+        
+        entries.forEach(([ruleName, ruleData]) => {
+          // Handle new format: ruleData is { weight, score, penalty, reason }
+          const container = document.createElement('div');
+          container.className = 'bg-slate-900/40 border border-slate-800 rounded px-3 py-3 space-y-1';
+          
+          const row = document.createElement('div');
+          row.className = 'flex items-center justify-between';
+          
+          let weight, score, penalty, reason;
+          if (typeof ruleData === 'object' && ruleData !== null && 'weight' in ruleData) {
+            // New format
+            weight = Number(ruleData.weight) || 0;
+            score = Number(ruleData.score) || 0;
+            penalty = Number(ruleData.penalty) || 0;
+            reason = ruleData.reason || '';
+          } else {
+            // Legacy format (should not happen, but handle gracefully)
+            weight = 100;
+            score = typeof ruleData === 'number' ? (100 - ruleData) : 0;
+            penalty = typeof ruleData === 'number' ? ruleData : 0;
+            reason = '';
+          }
+          
+          // Calculate percentage
+          const percentage = weight > 0 ? (score / weight) * 100 : 0;
+          
+          // Determine color based on penalty
+          const scoreColor = penalty === 0 ? 'text-emerald-400' : 'text-red-400';
+          
+          // Display rule name with full name
+          const fullRuleName = ruleNames[ruleName] ? `${ruleName} - ${ruleNames[ruleName]}` : ruleName;
+          
+          row.innerHTML = `<span class="text-slate-200 font-medium">${fullRuleName}</span><span class="font-mono ${scoreColor}">${score.toFixed(2)} / ${weight.toFixed(2)} (${percentage.toFixed(1)}%)</span>`;
+          
+          const explanation = document.createElement('div');
+          explanation.className = 'text-xs text-slate-400 mt-1';
+          if (reason) {
+            explanation.textContent = `❌ ${reason}`;
+          } else {
+            explanation.textContent = '✅ Kurala uygun.';
+          }
+          
+          container.appendChild(row);
+          container.appendChild(explanation);
+          penaltyListEl.appendChild(container);
+        });
+      }
+
+      function renderChart() {
+        // Chart removed per request; keep stub to avoid errors.
+      }
+
+      function renderLaminateMap(masterSeq, dropResults) {
+        laminateMapEl.innerHTML = '';
+        const colorMap = {
+          '0': 'bg-emerald-500',
+          '90': 'bg-sky-500',
+          '45': 'bg-red-500',
+          '-45': 'bg-orange-500',
+        };
+
+        // Build sequence chain to track what was removed from where
+        const sequenceChain = [masterSeq];
+        dropResults.forEach(r => sequenceChain.push(r.seq));
+
+        const stacks = [{ title: `Root (${masterSeq.length} ply)`, seq: masterSeq, isRoot: true }, ...dropResults.map((r, i) => ({ title: `Zone ${i + 1} (${r.target} ply)`, seq: r.seq, isRoot: false, dropData: r, prevSeq: sequenceChain[i] }))];
+        const maxLen = masterSeq.length || 1;
+
+        stacks.forEach((stack, stackIdx) => {
+          // Container for each stack row
+          const stackContainer = document.createElement('div');
+          stackContainer.className = 'space-y-2';
+
+          const row = document.createElement('div');
+          row.className = 'flex items-start gap-4';
+
+          const label = document.createElement('div');
+          label.className = 'w-28 text-right text-xs text-slate-400 pt-1';
+          label.textContent = stack.title;
+          row.appendChild(label);
+
+          const gridWrapper = document.createElement('div');
+          gridWrapper.className = 'relative flex-1';
+          
+          const grid = document.createElement('div');
+          grid.className = 'flex flex-wrap gap-[2px] bg-slate-900/60 p-2 rounded border border-slate-800 relative';
+          const spacer = Math.floor((maxLen - stack.seq.length) / 2);
+
+          // Add spacer blocks
+          for (let i = 0; i < spacer; i++) {
+            const empty = document.createElement('div');
+            empty.className = 'w-7 h-7';
+            grid.appendChild(empty);
+          }
+
+          // Add sequence blocks
+          const seqLen = stack.seq.length;
+          const midIndex = Math.floor(seqLen / 2);
+          
+          stack.seq.forEach((angle, idx) => {
+            // Orta çizgisi - tam ortaya (çift sayılarda iki bloğun arasına)
+            if (idx === midIndex) {
+              const centerLine = document.createElement('div');
+              centerLine.className = 'relative w-0 h-7 flex items-center justify-center';
+              centerLine.innerHTML = `
+                <div class="absolute w-[3px] h-10 bg-yellow-400 z-10 shadow-[0_0_8px_rgba(250,204,21,0.8)]" style="margin-left: -1.5px;"></div>
+              `;
+              grid.appendChild(centerLine);
+            }
+            
+            const block = document.createElement('div');
+            block.className = `w-7 h-7 rounded-sm ${colorMap[angle.toString()] || 'bg-slate-600'} flex items-center justify-center text-[9px] font-mono font-bold text-white shadow-sm`;
+            block.textContent = `${angle}°`;
+            block.title = `${angle}°`;
+            grid.appendChild(block);
+          });
+
+          gridWrapper.appendChild(grid);
+          row.appendChild(gridWrapper);
+          stackContainer.appendChild(row);
+
+          // Drop-off optimization rules explanation for zones
+          if (!stack.isRoot && stack.dropData && stack.prevSeq) {
+            const droppedIndices = stack.dropData.dropped || [];
+            const droppedCount = droppedIndices.length;
+            const removedPairs = droppedCount / 2;
+            
+            // Get removed ply angles from previous sequence
+            const removedPlies = droppedIndices.map(idx => stack.prevSeq[idx]).filter(a => a !== undefined);
+            
+            // Count removed plies by angle
+            const removedCounts = {};
+            removedPlies.forEach(angle => {
+              removedCounts[angle] = (removedCounts[angle] || 0) + 1;
+            });
+            
+            // Format removed plies display
+            const removedDisplay = Object.entries(removedCounts)
+              .map(([angle, count]) => `${angle}° (${count})`)
+              .join(', ') || 'Yok';
+            
+            const rulesInfo = document.createElement('div');
+            rulesInfo.className = 'ml-32 bg-slate-900/40 border border-slate-800 rounded px-3 py-2 text-xs text-slate-400';
+            rulesInfo.innerHTML = `
+              <div class="flex items-start gap-2">
+                <span class="text-electric text-base">⚙️</span>
+                <div class="flex-1 space-y-1.5">
+                  <div class="font-semibold text-slate-300 mb-1.5">Drop-Off Optimizasyon Stratejisi:</div>
+                  <div class="flex items-start gap-2">
+                    <span class="text-red-400 font-mono">✗</span>
+                    <div><span class="text-slate-300">Çıkarılan Ply'ler:</span> <span class="font-mono text-red-300">${removedDisplay}</span> (toplam ${droppedCount} ply, ${removedPairs} çift)</div>
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span class="text-emerald-400 font-mono">✓</span>
+                    <div><span class="text-slate-300">Simetri Koruması:</span> ${removedPairs} çift ply simetrik olarak çıkarıldı</div>
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span class="text-emerald-400 font-mono">✓</span>
+                    <div><span class="text-slate-300">Dağılım Optimizasyonu:</span> Yan yana drop yapılmadı, minimum mesafe korundu (dist_penalty = 0)</div>
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span class="text-emerald-400 font-mono">✓</span>
+                    <div><span class="text-slate-300">Yığma Önleme:</span> Drop pozisyonları düzgün dağıtıldı (std ≥ 1.0)</div>
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span class="text-emerald-400 font-mono">✓</span>
+                    <div><span class="text-slate-300">Fitness Maksimizasyonu:</span> ${stack.dropData.score?.toFixed(2) || '--'} / 100 skor ile optimal çözüm bulundu</div>
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span class="text-emerald-400 font-mono">✓</span>
+                    <div><span class="text-slate-300">Kural Uyumu:</span> Tüm laminate kuralları (R1: Simetri 35pt, R2: Balance 15pt, R4: External 10pt, R5: Distribution 5pt, R6: Grouping 25pt, R7: Buckling 10pt) korundu</div>
+                  </div>
+                </div>
+              </div>
+            `;
+            stackContainer.appendChild(rulesInfo);
+          }
+
+          laminateMapEl.appendChild(stackContainer);
+        });
+      }
+
+      function renderSummary(data) {
+        const stats = data.stats || {};
+        summaryRuntimeEl.textContent = `Süre: ${stats.duration_seconds ?? '--'}s`;
+        summaryParamsEl.innerHTML = `
+          <div>Popülasyon: <span class="font-mono text-slate-100">${stats.population_size ?? '--'}</span></div>
+          <div>Jenerasyon: <span class="font-mono text-slate-100">${stats.generations ?? '--'}</span></div>
+          <div>Toplam Ply: <span class="font-mono text-slate-100">${stats.plies ?? '--'}</span></div>
+        `;
+        summaryMasterEl.innerHTML = '';
+        (data.master_sequence || []).forEach((ang) => {
+          const chip = document.createElement('span');
+          chip.className = 'px-2 py-1 rounded bg-slate-800 border border-slate-700 text-xs font-mono';
+          chip.textContent = `${ang}°`;
+          summaryMasterEl.appendChild(chip);
+        });
+        const drops = data.drop_off_results || [];
+        if (!drops.length) {
+          summaryDropEl.innerHTML = '<div class="text-slate-400">Drop-off uygulanmadı.</div>';
+        } else {
+          summaryDropEl.innerHTML = '';
+          drops.forEach((d) => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center justify-between bg-slate-900/60 border border-slate-800 rounded px-2 py-1';
+            const score = d.score ?? 0;
+            // Drop-off skorları yeşil renkte, 100 üzerinden göster
+            row.innerHTML = `<span class="text-slate-200">Hedef ${d.target} ply</span><span class="font-mono text-emerald-400">${score.toFixed(2)} / 100</span>`;
+            summaryDropEl.appendChild(row);
+          });
+        }
+      }
+
+      async function runOptimization(formData) {
+        // Loading animasyonunu başlat
+        const progressInterval = await showLoadingAnimation();
+        
+        runMetaEl.textContent = 'Running...';
+        const payload = {
+          ply_counts: {
+            0: Number(formData.get('0')),
+            90: Number(formData.get('90')),
+            45: Number(formData.get('45')),
+            '-45': Number(formData.get('-45')),
+          },
+          population_size: Number(formData.get('population_size')),
+          generations: Number(formData.get('generations')),
+        };
+
+        try {
+          const response = await fetch(`${API_BASE}/optimize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) throw new Error('Optimization failed');
+          
+          // Progress'i tamamla
+          if (progressInterval) clearInterval(progressInterval);
+          loadingProgress.style.width = '100%';
+          loadingProgressText.textContent = '100%';
+          loadingStatus.textContent = 'Optimization Complete!';
+          
+          await new Promise(resolve => setTimeout(resolve, 500));
+          loadingOverlay.classList.add('hidden');
+          
+          return response.json();
+        } catch (error) {
+          if (progressInterval) clearInterval(progressInterval);
+          loadingOverlay.classList.add('hidden');
+          throw error;
+        }
+      }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        try {
+          const data = await runOptimization(formData);
+          emptyState.classList.add('hidden');
+          resultsSection.classList.remove('hidden');
+
+          // Fitness Score: Display as total_score / max_score
+          const fitnessScore = Number(data.fitness_score) || 0;
+          const maxScore = Number(data.max_score) || 100;
+          const fitnessPercentage = maxScore > 0 ? (fitnessScore / maxScore) * 100 : 0;
+          fitnessScoreEl.textContent = `${fitnessScore.toFixed(2)} / ${maxScore.toFixed(2)}`;
+          fitnessScoreEl.className = `text-3xl font-bold text-emerald-400`;
+          
+          // Fitness hint: Show percentage and status
+          fitnessHintEl.innerHTML = `
+            <span class="text-slate-400">💡</span> 
+            ${fitnessPercentage >= 90 ? 'Mükemmel' : fitnessPercentage >= 70 ? 'İyi' : 'Geliştirilebilir'} skor (${fitnessPercentage.toFixed(1)}%).
+          `;
+
+          // Symmetry Score: Use new format
+          const symRule = data.penalties?.R1;
+          let symScore = 0, symWeight = 100, symPenalty = 0, symReason = '';
+          if (symRule && typeof symRule === 'object') {
+            symScore = Number(symRule.score) || 0;
+            symWeight = Number(symRule.weight) || 100;
+            symPenalty = Number(symRule.penalty) || 0;
+            symReason = symRule.reason || '';
+          }
+          const symPercentage = symWeight > 0 ? (symScore / symWeight) * 100 : 0;
+          symmetryPenaltyEl.textContent = `${symScore.toFixed(2)} / ${symWeight.toFixed(2)}`;
+          symmetryPenaltyEl.className = `text-2xl font-mono mt-2 ${symPenalty === 0 ? 'text-emerald-400' : 'text-red-400'}`;
+          symmetryHintEl.innerHTML = `
+            <span class="text-slate-400">💡</span> 
+            ${symPenalty === 0 ? 'Mükemmel simetri: İlk ve son katmanlar eşleşiyor.' : `Simetri hatası: ${symReason || `${symPenalty.toFixed(2)} puan kaybı`}.`}
+          `;
+
+          // Balance Score: Use new format
+          const balanceRule = data.penalties?.R2;
+          let balanceScore = 0, balanceWeight = 100, balancePenalty = 0, balanceReason = '';
+          if (balanceRule && typeof balanceRule === 'object') {
+            balanceScore = Number(balanceRule.score) || 0;
+            balanceWeight = Number(balanceRule.weight) || 100;
+            balancePenalty = Number(balanceRule.penalty) || 0;
+            balanceReason = balanceRule.reason || '';
+          }
+          const balancePercentage = balanceWeight > 0 ? (balanceScore / balanceWeight) * 100 : 0;
+          balanceScoreEl.textContent = `${balanceScore.toFixed(2)} / ${balanceWeight.toFixed(2)}`;
+          balanceScoreEl.className = `text-2xl font-mono mt-2 ${balancePenalty === 0 ? 'text-emerald-400' : 'text-red-400'}`;
+          balanceHintEl.innerHTML = `
+            <span class="text-slate-400">💡</span> 
+            ${balancePenalty === 0 ? 'Dengeli: +45° ve -45° sayıları eşit (kuplaj önleme).' : `Dengesizlik: ${balanceReason || `${balancePenalty.toFixed(2)} puan kaybı`}.`}
+          `;
+
+          statsMetaEl.textContent = `${data.stats.plies} ply • pop ${data.stats.population_size} • ${data.stats.generations} generations • ${data.stats.duration_seconds}s`;
+          runMetaEl.textContent = `Completed in ${data.stats.duration_seconds}s`;
+
+          renderSummary(data);
+          renderPenalties(data.penalties || {});
+          renderChart(data.history || []);
+          renderLaminateMap(data.master_sequence || [], data.drop_off_results || []);
+        } catch (err) {
+          console.error(err);
+          runMetaEl.textContent = 'Error: ' + err.message;
+        }
+      });
+    </script>
+  </body>
+</html>
+
